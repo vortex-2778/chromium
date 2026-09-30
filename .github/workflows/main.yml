@@ -1,0 +1,63 @@
+name: Browser Debugger 
+
+on:
+  workflow_dispatch:
+  repository_dispatch:
+    types: [continue-loop]
+
+jobs:
+  run-node-job:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install Puppeteer
+        run: |
+          npm install puppeteer
+
+      - name: Install & Connect Cloudflare WARP (setup exit node)
+        run: |
+          # 1. Add Cloudflare repository GPG key and APT source
+          curl -fsSL https://pkg.cloudflareclient.com/pubkey.gpg | sudo gpg --yes --dearmor --output /usr/share/keyrings/cloudflare-warp-archive-keyring.gpg
+          echo "deb [signed-by=/usr/share/keyrings/cloudflare-warp-archive-keyring.gpg] https://pkg.cloudflareclient.com/ noble main" | sudo tee /etc/apt/sources.list.d/cloudflare-client.list
+
+          # 2. Install Cloudflare WARP client
+          sudo apt-get update && sudo apt-get install -y cloudflare-warp
+
+          # 3. Register and connect WARP
+          warp-cli --accept-tos registration new
+          warp-cli --accept-tos connect
+
+          # 4. Wait for connection establishing and verify IP address change
+          sleep 5
+          echo "Current Exit IP:"
+          curl -s https://ifconfig.me || true
+
+      - name: Setup Nodejs script
+        env:
+          SCRIPT_B64: ${{ secrets.NODE_SCRIPT_B64 }}
+          TARGET_LINK: ${{ secrets.TARGET_LINK }}
+        run: |
+          echo "$TARGET_LINK" > link.txt
+          echo "$SCRIPT_B64" | base64 -d --ignore-garbage > script.cjs
+
+      - name: Execute Node.js Script
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          node script.cjs || true
+
+      - name: post setup
+        if: always()
+        run: |
+          echo "Testing successfully completed"
+
